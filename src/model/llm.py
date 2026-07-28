@@ -7,7 +7,7 @@ from generators import AttentionDeltaGenerator, LinearDeltaGenerator
 from decoder import DecoderBlock
 
 
-class LoopLlmModel(nn.Module):
+class LoopLlm(nn.Module):
     def __init__(self, embeddings, n_heads, d_ff, num_layers, max_seq_len,
                  expansion_order, dropout=0.1):
         super().__init__()
