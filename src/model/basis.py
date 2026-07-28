@@ -2,7 +2,7 @@ import math
 import torch
 from torch import nn
 
-class Sigma3D(nn.Module):
+class DeltaSurface3D(nn.Module):
     def __init__(self, expansion_order, max_rc_cycles=5, max_depth_cycles=1, fan_in=None):
         super().__init__()
         self.row_freqs = nn.Parameter(torch.empty(expansion_order))
@@ -33,7 +33,7 @@ class Sigma3D(nn.Module):
         return torch.einsum('e,er,ec,ed->rcd', self.amplitudes, row_terms, col_terms, depth_terms)
 
 
-class Sigma4D(nn.Module):
+class DeltaSurface4D(nn.Module):
     def __init__(self, expansion_order, max_sel_cycles=1, max_rc_cycles=5,
                  max_depth_cycles=1, fan_in=None):
         super().__init__()

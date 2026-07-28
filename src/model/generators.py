@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from basis import Sigma3D, Sigma4D
+from basis import DeltaSurface3D, DeltaSurface4D
 
 def nyquist_check_depth(max_depth_cycles, num_layers, label=""):
     nyquist = num_layers / 2.0
@@ -16,7 +16,7 @@ class LinearDeltaGenerator(nn.Module):
         super().__init__()
         nyquist_check_depth(max_depth_cycles, num_layers, label="[ffn proj]")
 
-        self.diff_gen = Sigma3D(
+        self.diff_gen = DeltaSurface3D(
             expansion_order, max_rc_cycles=max_rc_cycles,
             max_depth_cycles=max_depth_cycles, fan_in=in_features
         )
@@ -39,7 +39,7 @@ class AttentionDeltaGenerator(nn.Module):
         self.d_model = d_model
         nyquist_check_depth(max_depth_cycles, num_layers, label="[attention]")
 
-        self.diff_gen = Sigma4D(expansion_order, max_sel_cycles=max_mat_cycles,
+        self.diff_gen = DeltaSurface4D(expansion_order, max_sel_cycles=max_mat_cycles,
                                   max_rc_cycles=max_rc_cycles, max_depth_cycles=max_depth_cycles,
                                   fan_in=d_model)
         self.depth_scale = nn.Parameter(torch.tensor(0.0))
