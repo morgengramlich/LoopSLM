@@ -4,27 +4,47 @@ import torch.nn.functional as F
 
 class RotaryPositionalEmbeddings(nn.Module):
     """Rotary Positional Embedding (RoPE) — parameter-free, dynamic sequence length."""
-    def __init__(self, d_k, base=10000):
+    def __init__(self, d_k, max_seq_len=2048, base=10000):
         super().__init__()
         self.d_k = d_k
         self.base = base
+        self._seq_len_cached = 0
 
-    def _get_freqs(self, position_ids):
-        device = position_ids.device
-        theta = 1.0 / (self.base ** (torch.arange(0, self.d_k, 2, device=device).float() / self.d_k))
-        freqs = position_ids.unsqueeze(-1).float() * theta.view(1, 1, -1)
-        freqs = torch.cat([freqs, freqs], dim=-1)
-        return freqs
+        inv_freq = 1.0 / (base ** (torch.arange(0, d_k, 2).float() / d_k))
+        self.register_buffer('inv_freq', inv_freq, persistent=False)
+
+        self.register_buffer('cos_cache', torch.empty(0), persistent=False)
+        self.register_buffer('sin_cache', torch.empty(0), persistent=False)
+        self._build_cache(max_seq_len)
+
+    def _build_cache(self, seq_len):
+        if seq_len <= self._seq_len_cached:
+            return
+
+        positions = torch.arange(
+            seq_len,
+            device=self.inv_freq.device,
+            dtype=self.inv_freq.dtype,
+        )
+
+        freqs = torch.outer(positions, self.inv_freq)
+        emb = torch.cat([freqs, freqs], dim=-1)
+
+        self.cos_cache = emb.cos()
+        self.sin_cache = emb.sin()
+        self._seq_len_cached = seq_len
 
     def _rotate_half(self, x):
-        half = x.shape[-1] // 2
-        x1, x2 = x[..., :half], x[..., half:]
-        return torch.cat([-x2, x1], dim=-1)
+        x1, x2 = x.chunk(2, dim=-1)
+        return torch.cat((-x2, x1), dim=-1)
 
     def forward(self, q, k, position_ids):
-        freqs = self._get_freqs(position_ids)
-        cos = freqs.cos().unsqueeze(1)
-        sin = freqs.sin().unsqueeze(1)
+        seq_len = position_ids.shape[-1]
+        if seq_len > self._seq_len_cached:
+            self._build_cache(seq_len)
+
+        cos = self.cos_cache[position_ids].unsqueeze(1).to(q.dtype)
+        sin = self.sin_cache[position_ids].unsqueeze(1).to(q.dtype)
 
         q_rot = q * cos + self._rotate_half(q) * sin
         k_rot = k * cos + self._rotate_half(k) * sin
