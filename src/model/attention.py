@@ -3,7 +3,6 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-
 class RotaryPositionalEmbeddings(nn.Module):
     """Rotary Positional Embedding (RoPE) — parameter-free, dynamic sequence length."""
     def __init__(self, d_k, base=10000):
@@ -37,7 +36,7 @@ class MultiHeadAttention(nn.Module):
     """Multi-Head Attention Layer using dynamically generated weights."""
     def __init__(self, d_model, n_heads):
         super().__init__()
-        assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
+        assert d_model % n_heads == 0, 'd_model must be divisible by n_heads'
         self.d_model = d_model
         self.n_heads = n_heads
         self.d_k = d_model // n_heads

@@ -2,6 +2,22 @@ import math
 import torch
 from torch import nn
 
+class DeltaCurve1D(nn.Module):
+    def __init__(self,expansion_order, max_cycles = 5):
+        super().__init__()
+        self.expansion_order = expansion_order
+
+        self.freqs = nn.Parameter(torch.empty(expansion_order))
+        self.phases = nn.Parameter(torch.empty(expansion_order))
+
+        max_freq = max_cycles * 2.0 * math.pi
+        nn.init.uniform_(self.freqs, -max_freq, max_freq)
+        nn.init.uniform_(self.phases, -math.pi, math.pi)
+
+    def forward(self, coords):
+        return torch.sin(self.freqs[:, None] * coords[None, :] + self.phases[:, None])
+
+
 class DeltaSurface3D(nn.Module):
     def __init__(self, expansion_order, max_rc_cycles=5, max_depth_cycles=1, fan_in=None):
         super().__init__()

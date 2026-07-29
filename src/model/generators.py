@@ -2,10 +2,10 @@ import torch
 from torch import nn
 from basis import DeltaSurface3D, DeltaSurface4D
 
-def nyquist_check_depth(max_depth_cycles, num_layers, label=""):
+def nyquist_check_depth(max_depth_cycles, num_layers, label=''):
     nyquist = num_layers / 2.0
     ratio = max_depth_cycles / nyquist
-    flag = "OK" if ratio < 0.5 else ("CAUTION" if ratio < 1.0 else "LIKELY ALIASED")
+    flag = 'OK' if ratio < 0.5 else ('CAUTION' if ratio < 1.0 else 'LIKELY ALIASED')
     print(f"{label} max_depth_cycles={max_depth_cycles} vs depth-Nyquist={nyquist:.1f} "
           f"(num_layers={num_layers}) -> ratio {ratio:.2f} -> {flag}")
 
@@ -14,7 +14,7 @@ class LinearDeltaGenerator(nn.Module):
     def __init__(self, in_features, out_features, num_layers, expansion_order,
                  max_rc_cycles=5, max_depth_cycles=1):
         super().__init__()
-        nyquist_check_depth(max_depth_cycles, num_layers, label="[ffn proj]")
+        nyquist_check_depth(max_depth_cycles, num_layers, label='[ffn proj]')
 
         self.diff_gen = DeltaSurface3D(
             expansion_order, max_rc_cycles=max_rc_cycles,
@@ -37,7 +37,7 @@ class AttentionDeltaGenerator(nn.Module):
                  max_mat_cycles=1, max_rc_cycles=5, max_depth_cycles=1):
         super().__init__()
         self.d_model = d_model
-        nyquist_check_depth(max_depth_cycles, num_layers, label="[attention]")
+        nyquist_check_depth(max_depth_cycles, num_layers, label='[attention]')
 
         self.diff_gen = DeltaSurface4D(expansion_order, max_sel_cycles=max_mat_cycles,
                                   max_rc_cycles=max_rc_cycles, max_depth_cycles=max_depth_cycles,
