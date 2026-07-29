@@ -1,4 +1,3 @@
-import math
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -64,16 +63,12 @@ class MultiHeadAttention(nn.Module):
 
         q, k = self.rope(q, k, position_ids)
 
-        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_k)
+        out = F.scaled_dot_product_attention(
+            q, k, v,
+            attn_mask=attn_mask,
+            is_causal=is_causal and attn_mask is None,
+            dropout_p=0.0,
+        )
 
-        if attn_mask is not None:
-            scores.masked_fill_(attn_mask, float('-inf'))
-        elif is_causal:
-            mask = torch.triu(torch.ones(S_q, S_kv, device=x.device), diagonal=1).bool()
-            scores.masked_fill_(mask, float('-inf'))
-
-        attn_weights = F.softmax(scores, dim=-1)
-        out = torch.matmul(attn_weights, v)
-
-        out = out.transpose(1, 2).contiguous().view(B, S_q, E)
+        out = out.transpose(1, 2).reshape(B, S_q, E)
         return self.W_o(out)
