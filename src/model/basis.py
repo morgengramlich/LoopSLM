@@ -17,6 +17,30 @@ class DeltaCurve1D(nn.Module):
     def forward(self, coords):
         return torch.sin(self.freqs[:, None] * coords[None, :] + self.phases[:, None])
 
+class DeltaSurface2D(nn.Module):
+    def __init__(self, expansion_order, max_feature_cycles=5, max_depth_cycles=1, fan_in=None):
+        super().__init__()
+        self.feature_freqs = nn.Parameter(torch.empty(expansion_order))
+        self.depth_freqs = nn.Parameter(torch.empty(expansion_order))
+        self.feature_phases = nn.Parameter(torch.empty(expansion_order))
+        self.depth_phases = nn.Parameter(torch.empty(expansion_order))
+        self.amplitudes = nn.Parameter(torch.empty(expansion_order))
+
+        feature_max = max_feature_cycles * 2 * math.pi
+        depth_max = max_depth_cycles * 2 * math.pi
+        nn.init.uniform_(self.feature_freqs, -feature_max, feature_max)
+        nn.init.uniform_(self.depth_freqs, -depth_max, depth_max)
+        nn.init.uniform_(self.feature_phases, -math.pi, math.pi)
+        nn.init.uniform_(self.depth_phases, -math.pi, math.pi)
+
+        E = expansion_order
+        amp_std = (1.0 / math.sqrt(E)) if fan_in is None else 2.0 / math.sqrt(E * fan_in)
+        nn.init.normal_(self.amplitudes, mean=0.0, std=amp_std)
+
+    def forward(self, feature_coords, depth_coords):
+        col_terms = torch.sin(self.feature_freqs.unsqueeze(1) * feature_coords.unsqueeze(0) + self.feature_phases.unsqueeze(1))
+        depth_terms = torch.sin(self.depth_freqs.unsqueeze(1) * depth_coords.unsqueeze(0) + self.depth_phases.unsqueeze(1))
+        return torch.einsum('e,ec,ed->cd', self.amplitudes, col_terms, depth_terms)
 
 class DeltaSurface3D(nn.Module):
     def __init__(self, expansion_order, max_rc_cycles=5, max_depth_cycles=1, fan_in=None):

@@ -50,7 +50,11 @@ class LoopLlm(nn.Module):
         nn.init.uniform_(self.b_down, -bound, bound)
 
     def _base_weights(self):
-        return (self.W_q, self.W_k, self.W_v, self.W_o, self.W_up, self.W_down)
+        return (
+            self.W_q, self.W_k, self.W_v, self.W_o,
+            self.W_up, self.b_up,
+            self.W_down, self.b_down
+        )
 
     def forward(self, idx, position_ids, attn_mask=None):
         B, T = idx.shape
@@ -58,7 +62,7 @@ class LoopLlm(nn.Module):
 
         x = self.dropout(self.token_emb(idx))
 
-        W_q, W_k, W_v, W_o, W_up, W_down = self._base_weights()
+        W_q, W_k, W_v, W_o, W_up, b_up, W_down, b_down = self._base_weights()
         for n in range(self.num_layers):
             if n > 0:
                 d_qkvo = self.attn_gen.get_layer_diff(n)
@@ -67,16 +71,21 @@ class LoopLlm(nn.Module):
                 W_v = W_v + d_qkvo[2]
                 W_o = W_o + d_qkvo[3]
 
-                W_up = W_up + self.ffn_up_gen.get_layer_diff(n)
-                W_down = W_down + self.ffn_down_gen.get_layer_diff(n)
+                dW_up, db_up = self.ffn_up_gen.get_layer_diff(n)
+                W_up = W_up + dW_up
+                b_up = b_up + db_up if db_up else b_up
 
-            x = self.decoder(x, position_ids, W_q, W_k, W_v, W_o, W_up, W_down, self.b_up, self.b_down, attn_mask=attn_mask)
+                dW_down, db_down = self.ffn_down_gen.get_layer_diff(n)
+                W_down = W_down + dW_down
+                b_down = b_down + db_down if db_down else b_down
+
+            x = self.decoder(x, position_ids, W_q, W_k, W_v, W_o, W_up, W_down, b_up, b_down, attn_mask=attn_mask)
 
         x = self.norm_f(x)
         return x @ self.token_emb.weight.T
 
     def get_param_groups(self, base_lr, surface_lr):
-        base_params = [self.W_q, self.W_k, self.W_v, self.W_o, self.W_up, self.W_down]
+        base_params = [self.W_q, self.W_k, self.W_v, self.W_o, self.W_up, self.b_up, self.W_down, self.b_down]
         base_params += list(self.decoder.parameters())
         base_params += list(self.norm_f.parameters())
 

@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from .basis import DeltaSurface3D, DeltaSurface4D
+from .basis import DeltaSurface2D, DeltaSurface3D, DeltaSurface4D
 
 def nyquist_check_depth(max_depth_cycles, num_layers, label=''):
     nyquist = num_layers / 2.0
@@ -12,15 +12,26 @@ def nyquist_check_depth(max_depth_cycles, num_layers, label=''):
 
 class LinearDeltaGenerator(nn.Module):
     def __init__(self, in_features, out_features, num_layers, expansion_order,
-                 max_rc_cycles=5, max_depth_cycles=1):
+                 max_rc_cycles=5, max_depth_cycles=1, use_bias=True):
         super().__init__()
         nyquist_check_depth(max_depth_cycles, num_layers, label='[ffn proj]')
 
-        self.diff_gen = DeltaSurface3D(
+        self.use_bias = use_bias
+
+        self.weight_diff_gen = DeltaSurface3D(
             expansion_order, max_rc_cycles=max_rc_cycles,
             max_depth_cycles=max_depth_cycles, fan_in=in_features
         )
-        self.depth_scale = nn.Parameter(torch.tensor(0.0))
+        self.weight_depth_scale = nn.Parameter(torch.tensor(0.0))
+
+        self.bias_diff_gen = None
+        self.bias_depth_scale = None
+        if use_bias:
+            self.bias_diff_gen = DeltaSurface2D(
+                expansion_order, max_feature_cycles=max_rc_cycles,
+                max_depth_cycles=max_depth_cycles, fan_in=None
+            )
+            self.bias_depth_scale = nn.Parameter(torch.tensor(0.0))
 
         self.register_buffer('row_coords', torch.linspace(0, 1, out_features))
         self.register_buffer('col_coords', torch.linspace(0, 1, in_features))
@@ -28,8 +39,11 @@ class LinearDeltaGenerator(nn.Module):
 
     def get_layer_diff(self, layer_idx):
         d = self.depth_coords[layer_idx: layer_idx + 1]
-        raw = self.diff_gen(self.row_coords, self.col_coords, d)
-        return self.depth_scale * raw.squeeze(-1)
+        w_diff = self.weight_depth_scale * self.weight_diff_gen(self.row_coords, self.col_coords, d).squeeze(-1)
+        b_diff = None
+        if self.use_bias:
+            b_diff = self.bias_depth_scale * self.bias_diff_gen(self.row_coords, d).squeeze(-1)
+        return w_diff, b_diff
 
 
 class AttentionDeltaGenerator(nn.Module):
