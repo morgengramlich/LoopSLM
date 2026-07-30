@@ -73,11 +73,11 @@ class LoopLlm(nn.Module):
 
                 dW_up, db_up = self.ffn_up_gen.get_layer_diff(n)
                 W_up = W_up + dW_up
-                b_up = b_up + db_up if db_up else b_up
+                b_up = b_up + db_up if db_up is not None else b_up
 
                 dW_down, db_down = self.ffn_down_gen.get_layer_diff(n)
                 W_down = W_down + dW_down
-                b_down = b_down + db_down if db_down else b_down
+                b_down = b_down + db_down if db_down is not None else b_down
 
             x = self.decoder(x, position_ids, W_q, W_k, W_v, W_o, W_up, W_down, b_up, b_down, attn_mask=attn_mask)
 
