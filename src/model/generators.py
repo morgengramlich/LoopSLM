@@ -16,8 +16,6 @@ class LinearDeltaGenerator(nn.Module):
         super().__init__()
         nyquist_check_depth(max_depth_cycles, num_layers, label='[ffn proj]')
 
-        self.use_bias = use_bias
-
         self.weight_diff_gen = DeltaSurface3D(
             expansion_order, max_rc_cycles=max_rc_cycles,
             max_depth_cycles=max_depth_cycles, fan_in=in_features
@@ -41,7 +39,7 @@ class LinearDeltaGenerator(nn.Module):
         d = self.depth_coords[layer_idx: layer_idx + 1]
         w_diff = self.weight_depth_scale * self.weight_diff_gen(self.row_coords, self.col_coords, d).squeeze(-1)
         b_diff = None
-        if self.use_bias:
+        if self.bias_diff_gen is not None:
             b_diff = self.bias_depth_scale * self.bias_diff_gen(self.row_coords, d).squeeze(-1)
         return w_diff, b_diff
 
