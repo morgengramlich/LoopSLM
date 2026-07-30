@@ -1,54 +1,6 @@
-import torch
 from torch import nn
 import torch.nn.functional as F
-
-class RotaryPositionalEmbeddings(nn.Module):
-    """Rotary Positional Embedding (RoPE) — parameter-free, dynamic sequence length."""
-    def __init__(self, d_k, max_seq_len=2048, base=10000):
-        super().__init__()
-        self.d_k = d_k
-        self.base = base
-        self._seq_len_cached = 0
-
-        inv_freq = 1.0 / (base ** (torch.arange(0, d_k, 2).float() / d_k))
-        self.register_buffer('inv_freq', inv_freq, persistent=False)
-
-        self.register_buffer('cos_cache', torch.empty(0), persistent=False)
-        self.register_buffer('sin_cache', torch.empty(0), persistent=False)
-        self._build_cache(max_seq_len)
-
-    def _build_cache(self, seq_len):
-        if seq_len <= self._seq_len_cached:
-            return
-
-        positions = torch.arange(
-            seq_len,
-            device=self.inv_freq.device,
-            dtype=self.inv_freq.dtype,
-        )
-
-        freqs = torch.outer(positions, self.inv_freq)
-        emb = torch.cat([freqs, freqs], dim=-1)
-
-        self.cos_cache = emb.cos()
-        self.sin_cache = emb.sin()
-        self._seq_len_cached = seq_len
-
-    def _rotate_half(self, x):
-        x1, x2 = x.chunk(2, dim=-1)
-        return torch.cat((-x2, x1), dim=-1)
-
-    def forward(self, q, k, position_ids):
-        seq_len = position_ids.shape[-1]
-        if seq_len > self._seq_len_cached:
-            self._build_cache(seq_len)
-
-        cos = self.cos_cache[position_ids].unsqueeze(1).to(q.dtype)
-        sin = self.sin_cache[position_ids].unsqueeze(1).to(q.dtype)
-
-        q_rot = q * cos + self._rotate_half(q) * sin
-        k_rot = k * cos + self._rotate_half(k) * sin
-        return q_rot, k_rot
+from .rope import RotaryPositionalEmbeddings
 
 
 class MultiHeadAttention(nn.Module):
@@ -59,27 +11,18 @@ class MultiHeadAttention(nn.Module):
         self.d_model = d_model
         self.n_heads = n_heads
         self.d_k = d_model // n_heads
-
-        self.W_q = nn.Linear(d_model, d_model, bias=False)
-        self.W_k = nn.Linear(d_model, d_model, bias=False)
-        self.W_v = nn.Linear(d_model, d_model, bias=False)
-        self.W_o = nn.Linear(d_model, d_model, bias=False)
         self.rope = RotaryPositionalEmbeddings(self.d_k)
 
-    def forward(self, x, position_ids, context=None, is_causal=False, attn_mask=None):
+    def forward(self, x, position_ids, W_q, W_k, W_v, W_o, is_causal=False, attn_mask=None):
         B, S_q, E = x.shape
 
-        has_context = context is not None
-        S_kv = context.shape[1] if has_context else S_q
-        kv_input = context if has_context else x
-
-        q = self.W_q(x)
-        k = self.W_k(kv_input)
-        v = self.W_v(kv_input)
+        q = F.linear(x, W_q)
+        k = F.linear(x, W_k)
+        v = F.linear(x, W_v)
 
         q = q.view(B, S_q, self.n_heads, self.d_k).transpose(1, 2)
-        k = k.view(B, S_kv, self.n_heads, self.d_k).transpose(1, 2)
-        v = v.view(B, S_kv, self.n_heads, self.d_k).transpose(1, 2)
+        k = k.view(B, S_q, self.n_heads, self.d_k).transpose(1, 2)
+        v = v.view(B, S_q, self.n_heads, self.d_k).transpose(1, 2)
 
         q, k = self.rope(q, k, position_ids)
 
@@ -90,5 +33,5 @@ class MultiHeadAttention(nn.Module):
             dropout_p=0.0,
         )
 
-        out = out.transpose(1, 2).reshape(B, S_q, E)
-        return self.W_o(out)
+        out = out.transpose(1, 2).contiguous().view(B, S_q, E)
+        return F.linear(out, W_o)

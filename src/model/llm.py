@@ -1,10 +1,9 @@
+import math
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torch.func import functional_call
-
-from generators import AttentionDeltaGenerator, LinearDeltaGenerator
-from decoder import DecoderBlock
+from .generators import AttentionDeltaGenerator, LinearDeltaGenerator
+from .decoder import DecoderBlock
 
 
 class LoopLlm(nn.Module):
@@ -13,44 +12,45 @@ class LoopLlm(nn.Module):
         super().__init__()
         vocab_size, d_model = embeddings.shape
         self.d_model = d_model
+        self.d_ff = d_ff
         self.num_layers = num_layers
         self.max_seq_len = max_seq_len
-        self.dropout = nn.Dropout(dropout)
 
         self.token_emb = nn.Embedding.from_pretrained(embeddings, freeze=True)
+        self.dropout = nn.Dropout(dropout)
+
+        self.W_q = nn.Parameter(torch.empty(d_model, d_model))
+        self.W_k = nn.Parameter(torch.empty(d_model, d_model))
+        self.W_v = nn.Parameter(torch.empty(d_model, d_model))
+        self.W_o = nn.Parameter(torch.empty(d_model, d_model))
+        self.W_up = nn.Parameter(torch.empty(d_ff, d_model))
+        self.W_down = nn.Parameter(torch.empty(d_model, d_ff))
+        self.b_up = nn.Parameter(torch.zeros(d_ff))
+        self.b_down = nn.Parameter(torch.zeros(d_model))
+        self._init_weights()
 
         self.attn_gen = AttentionDeltaGenerator(d_model, num_layers, expansion_order)
         self.ffn_up_gen = LinearDeltaGenerator(d_model, d_ff, num_layers, expansion_order)
         self.ffn_down_gen = LinearDeltaGenerator(d_ff, d_model, num_layers, expansion_order)
 
-        self.llm_core = DecoderBlock(d_model=d_model, n_heads=n_heads, d_ff=d_ff, dropout=dropout)
-        self.llm_core.norm1 = nn.RMSNorm(d_model)
+        self.decoder = DecoderBlock(d_model=d_model, n_heads=n_heads, dropout=dropout)
         self.norm_f = nn.RMSNorm(d_model)
 
+    def _init_weights(self):
+        """Initialize base transformer weights."""
+        nn.init.xavier_uniform_(self.W_q)
+        nn.init.xavier_uniform_(self.W_k)
+        nn.init.xavier_uniform_(self.W_v)
+        nn.init.xavier_uniform_(self.W_o)
+        nn.init.xavier_uniform_(self.W_up)
+        nn.init.xavier_uniform_(self.W_down)
+        bound = 1 / math.sqrt(self.d_model)
+        nn.init.uniform_(self.b_up, -bound, bound)
+        bound = 1 / math.sqrt(self.d_ff)
+        nn.init.uniform_(self.b_down, -bound, bound)
+
     def _base_weights(self):
-        attn_layer = self.llm_core.self_attn
-        base_q = attn_layer.W_q.weight
-        base_k = attn_layer.W_k.weight
-        base_v = attn_layer.W_v.weight
-        base_o = attn_layer.W_o.weight
-        base_qkvo = torch.stack([base_q, base_k, base_v, base_o], dim=0)
-
-        base_up = self.llm_core.ffn[0].weight
-        base_down = self.llm_core.ffn[2].weight
-        return base_qkvo, base_up, base_down
-
-    def _layer_params(self, running_qkvo, running_up, running_down):
-        W_q, W_k, W_v, W_o = running_qkvo[0], running_qkvo[1], running_qkvo[2], running_qkvo[3]
-
-        params = dict(self.llm_core.named_parameters())
-        params['self_attn.W_q.weight'] = W_q
-        params['self_attn.W_k.weight'] = W_k
-        params['self_attn.W_v.weight'] = W_v
-        params['self_attn.W_o.weight'] = W_o
-        params['ffn.0.weight'] = running_up
-        params['ffn.2.weight'] = running_down
-
-        return params
+        return (self.W_q, self.W_k, self.W_v, self.W_o, self.W_up, self.W_down)
 
     def forward(self, idx, position_ids, attn_mask=None):
         B, T = idx.shape
@@ -58,24 +58,28 @@ class LoopLlm(nn.Module):
 
         x = self.dropout(self.token_emb(idx))
 
-        running_qkvo, running_up, running_down = self._base_weights()
+        W_q, W_k, W_v, W_o, W_up, W_down = self._base_weights()
         for n in range(self.num_layers):
             if n > 0:
-                running_qkvo = running_qkvo + self.attn_gen.get_layer_diff(n)
-                running_up = running_up + self.ffn_up_gen.get_layer_diff(n)
-                running_down = running_down + self.ffn_down_gen.get_layer_diff(n)
+                d_qkvo = self.attn_gen.get_layer_diff(n)
+                W_q = W_q + d_qkvo[0]
+                W_k = W_k + d_qkvo[1]
+                W_v = W_v + d_qkvo[2]
+                W_o = W_o + d_qkvo[3]
 
-            params = self._layer_params(running_qkvo, running_up, running_down)
-            x = functional_call(
-                self.llm_core, params, args=(x, position_ids),
-                kwargs={'attn_mask': attn_mask}
-            )
+                W_up = W_up + self.ffn_up_gen.get_layer_diff(n)
+                W_down = W_down + self.ffn_down_gen.get_layer_diff(n)
+
+            x = self.decoder(x, position_ids, W_q, W_k, W_v, W_o, W_up, W_down, self.b_up, self.b_down, attn_mask=attn_mask)
 
         x = self.norm_f(x)
         return x @ self.token_emb.weight.T
 
     def get_param_groups(self, base_lr, surface_lr):
-        base_params = list(self.llm_core.parameters()) + list(self.norm_f.parameters())
+        base_params = [self.W_q, self.W_k, self.W_v, self.W_o, self.W_up, self.W_down]
+        base_params += list(self.decoder.parameters())
+        base_params += list(self.norm_f.parameters())
+
         surface_params = (list(self.attn_gen.parameters()) +
                            list(self.ffn_up_gen.parameters()) +
                            list(self.ffn_down_gen.parameters()))
@@ -85,11 +89,7 @@ class LoopLlm(nn.Module):
         accounted = base_ids | surface_ids
         for name, p in self.named_parameters():
             if p.requires_grad and id(p) not in accounted:
-                raise ValueError(
-                    f"'{name}' is trainable but not in either group -- "
-                    f"get_param_groups is out of sync with the model's "
-                    f"module structure and needs updating."
-                )
+                raise ValueError(f"Unassigned parameter: {name}")
 
         return [
             {'params': base_params, 'lr': base_lr, 'name': 'base'},

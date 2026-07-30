@@ -1,7 +1,7 @@
 import math
 import torch
 from torch import nn
-from basis import DeltaCurve1D
+from .basis import DeltaCurve1D
 
 class HarmonicEmbedding(nn.Module):
     def __init__(self, vocab_size, embedding_dim, expansion_order, max_cycles=5):
