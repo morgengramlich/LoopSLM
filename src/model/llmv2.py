@@ -1,16 +1,17 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-from .generators import AttentionDeltaGenerator, LinearDeltaGenerator
-from .decoder import DecoderBlock
+from .generators import LatentAttentionDeltaGenerator, LinearDeltaGenerator
+from .decoderv2 import DecoderBlock
 
 
 class LoopLlm(nn.Module):
-    def __init__(self, embeddings, n_heads, d_ff, num_layers, max_seq_len,
+    def __init__(self, embeddings, n_heads, d_c, d_ff, num_layers, max_seq_len,
                  expansion_order, dropout=0.1):
         super().__init__()
         vocab_size, d_model = embeddings.shape
         self.d_model = d_model
+        self.d_c = d_c
         self.d_ff = d_ff
         self.num_layers = num_layers
         self.max_seq_len = max_seq_len
@@ -18,32 +19,38 @@ class LoopLlm(nn.Module):
         self.token_emb = nn.Embedding.from_pretrained(embeddings, freeze=True)
         self.dropout = nn.Dropout(dropout)
 
-        self.W_q = nn.Parameter(torch.empty(d_model, d_model))
-        self.W_k = nn.Parameter(torch.empty(d_model, d_model))
-        self.W_v = nn.Parameter(torch.empty(d_model, d_model))
+        self.W_dq = nn.Parameter(torch.empty(d_c, d_model))
+        self.W_dkv = nn.Parameter(torch.empty(d_c, d_model))
+        self.W_uq = nn.Parameter(torch.empty(d_model, d_c))
+        self.W_uk = nn.Parameter(torch.empty(d_model, d_c))
+        self.W_uv = nn.Parameter(torch.empty(d_model, d_c))
         self.W_o = nn.Parameter(torch.empty(d_model, d_model))
+
         self.W_up = nn.Parameter(torch.empty(2 * d_ff, d_model))
         self.W_down = nn.Parameter(torch.empty(d_model, d_ff))
         self._init_weights()
 
-        self.attn_gen = AttentionDeltaGenerator(d_model, num_layers, expansion_order)
+        self.attn_gen = LatentAttentionDeltaGenerator(d_model, d_c, num_layers, expansion_order)
         self.ffn_up_gen = LinearDeltaGenerator(d_model, 2 * d_ff, num_layers, expansion_order)
         self.ffn_down_gen = LinearDeltaGenerator(d_ff, d_model, num_layers, expansion_order)
 
-        self.decoder = DecoderBlock(d_model=d_model, n_heads=n_heads, dropout=dropout)
+        self.decoder = DecoderBlock(d_model=d_model, d_c=d_c, n_heads=n_heads, dropout=dropout)
         self.norm_f = nn.RMSNorm(d_model)
 
     def _init_weights(self):
         """Initialize base transformer weights."""
-        nn.init.xavier_uniform_(self.W_q)
-        nn.init.xavier_uniform_(self.W_k)
-        nn.init.xavier_uniform_(self.W_v)
+        nn.init.xavier_uniform_(self.W_dq)
+        nn.init.xavier_uniform_(self.W_dkv)
+        nn.init.xavier_uniform_(self.W_uq)
+        nn.init.xavier_uniform_(self.W_uk)
+        nn.init.xavier_uniform_(self.W_uv)
         nn.init.xavier_uniform_(self.W_o)
         nn.init.xavier_uniform_(self.W_up)
         nn.init.xavier_uniform_(self.W_down)
 
     def _base_weights(self):
-        return (self.W_q, self.W_k, self.W_v, self.W_o, self.W_up, self.W_down)
+        return (self.W_dq, self.W_dkv, self.W_uq, self.W_uk, self.W_uv, self.W_o,
+                self.W_up, self.W_down)
 
     def forward(self, idx, attn_mask=None):
         B, T = idx.shape
@@ -51,14 +58,16 @@ class LoopLlm(nn.Module):
 
         x = self.dropout(self.token_emb(idx))
 
-        W_q, W_k, W_v, W_o, W_up, W_down = self._base_weights()
+        W_dq, W_dkv, W_uq, W_uk, W_uv, W_o, W_up, W_down = self._base_weights()
         for n in range(self.num_layers):
             if n > 0:
-                d_qkvo = self.attn_gen.get_layer_diff(n)
-                W_q = W_q + d_qkvo[0]
-                W_k = W_k + d_qkvo[1]
-                W_v = W_v + d_qkvo[2]
-                W_o = W_o + d_qkvo[3]
+                d_attn = self.attn_gen.get_layer_diff(n)
+                W_dq = W_dq + d_attn[0]
+                W_dkv = W_dkv + d_attn[1]
+                W_uq = W_uq + d_attn[2]
+                W_uk = W_uk + d_attn[3]
+                W_uv = W_uv + d_attn[4]
+                W_o = W_o + d_attn[5]
 
                 dW_up = self.ffn_up_gen.get_layer_diff(n)
                 W_up = W_up + dW_up
@@ -66,13 +75,16 @@ class LoopLlm(nn.Module):
                 dW_down = self.ffn_down_gen.get_layer_diff(n)
                 W_down = W_down + dW_down
 
-            x = self.decoder(x, W_q, W_k, W_v, W_o, W_up, W_down, attn_mask=attn_mask)
+            x = self.decoder(
+                x, W_dq, W_dkv, W_uq, W_uk, W_uv, W_o, W_up, W_down,
+                attn_mask=attn_mask
+            )
 
         x = self.norm_f(x)
         return x @ self.token_emb.weight.T
 
     def get_param_groups(self, base_lr, coeff_lr, freq_lr, phase_lr, scale_lr):
-        base_params = [self.W_q, self.W_k, self.W_v, self.W_o, self.W_up, self.W_down]
+        base_params = [self.W_dq, self.W_dkv, self.W_uq, self.W_uk, self.W_uv, self.W_o, self.W_up, self.W_down]
         base_params += list(self.decoder.parameters())
         base_params += list(self.norm_f.parameters())
 
