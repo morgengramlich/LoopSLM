@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from .basis import DeltaSurface2D, DeltaSurface3D, DeltaSurface4D
+from .basis import DeltaSurface3D, DeltaSurface4D
 
 def nyquist_check_depth(max_depth_cycles, num_layers, label=''):
     nyquist = num_layers / 2.0
@@ -94,10 +94,10 @@ class LatentAttentionDeltaGenerator(nn.Module):
 
         s = self.depth_scale
         return (
-            s * raw_down[0],  # dW_dq  [d_c, d_model]
-            s * raw_down[1],  # dW_dkv [d_c, d_model]
-            s * raw_up[0],    # dW_uq  [d_model, d_c]
-            s * raw_up[1],    # dW_uk  [d_model, d_c]
-            s * raw_up[2],    # dW_uv  [d_model, d_c]
-            s * raw_out,      # dW_o   [d_model, d_model]
+            s * raw_down[0],
+            s * raw_down[1],
+            s * raw_up[0],
+            s * raw_up[1],
+            s * raw_up[2],
+            s * raw_out,
         )
