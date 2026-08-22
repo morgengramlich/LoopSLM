@@ -2,6 +2,7 @@ import torch
 from torch import nn
 from .basis import DeltaSurface3D, DeltaSurface4D
 
+
 def nyquist_check_depth(max_depth_cycles, num_layers, label=''):
     nyquist = num_layers / 2.0
     ratio = max_depth_cycles / nyquist

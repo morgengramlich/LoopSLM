@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from .generators import LatentAttentionDeltaGenerator, LinearDeltaGenerator
-from .decoderv2 import DecoderBlock
+from .decoder import LatentDecoderBlock
 
 
 class LoopLlm(nn.Module):
@@ -34,7 +34,7 @@ class LoopLlm(nn.Module):
         self.ffn_up_gen = LinearDeltaGenerator(d_model, 2 * d_ff, num_layers, expansion_order)
         self.ffn_down_gen = LinearDeltaGenerator(d_ff, d_model, num_layers, expansion_order)
 
-        self.decoder = DecoderBlock(d_model=d_model, d_c=d_c, n_heads=n_heads, dropout=dropout)
+        self.decoder = LatentDecoderBlock(d_model=d_model, d_c=d_c, n_heads=n_heads, dropout=dropout)
         self.norm_f = nn.RMSNorm(d_model)
 
     def _init_weights(self):
