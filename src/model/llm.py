@@ -51,22 +51,24 @@ class LoopLlm(nn.Module):
 
         x = self.dropout(self.token_emb(idx))
 
-        W_q, W_k, W_v, W_o, W_up, W_down = self._base_weights()
+        base_attn = (self.W_q, self.W_k, self.W_v, self.W_o)
+        base_ffn = (self.W_up, self.W_down)
+
+        factors_attn = self.attn_gen.generate_harmonics()
+        factors_up = self.ffn_up_gen.generate_harmonics()
+        factors_down = self.ffn_down_gen.generate_harmonics()
+
         for n in range(self.num_layers):
-            if n > 0:
-                d_qkvo = self.attn_gen.get_layer_diff(n)
-                W_q = W_q + d_qkvo[0]
-                W_k = W_k + d_qkvo[1]
-                W_v = W_v + d_qkvo[2]
-                W_o = W_o + d_qkvo[3]
-
-                dW_up = self.ffn_up_gen.get_layer_diff(n)
-                W_up = W_up + dW_up
-
-                dW_down = self.ffn_down_gen.get_layer_diff(n)
-                W_down = W_down + dW_down
-
-            x = self.decoder(x, W_q, W_k, W_v, W_o, W_up, W_down, attn_mask=attn_mask)
+            x = self.decoder(
+                x,
+                base_attn,
+                base_ffn,
+                factors_attn,
+                factors_up,
+                factors_down,
+                layer_idx=n,
+                attn_mask=attn_mask,
+            )
 
         x = self.norm_f(x)
         return x @ self.token_emb.weight.T

@@ -31,7 +31,7 @@ class DeltaSurface3D(nn.Module):
         row_terms = torch.sin(self.row_freqs.unsqueeze(1) * row_coords.unsqueeze(0) + self.row_phases.unsqueeze(1))
         col_terms = torch.sin(self.col_freqs.unsqueeze(1) * col_coords.unsqueeze(0) + self.col_phases.unsqueeze(1))
         depth_terms = torch.sin(self.depth_freqs.unsqueeze(1) * depth_coords.unsqueeze(0) + self.depth_phases.unsqueeze(1))
-        return torch.einsum('e,er,ec,ed->rcd', self.amplitudes, row_terms, col_terms, depth_terms)
+        return row_terms, col_terms, depth_terms, self.amplitudes
 
 
 class DeltaSurface4D(nn.Module):
@@ -69,4 +69,4 @@ class DeltaSurface4D(nn.Module):
         row_terms = torch.sin(self.row_freqs.unsqueeze(1) * row_coords.unsqueeze(0) + self.row_phases.unsqueeze(1))
         col_terms = torch.sin(self.col_freqs.unsqueeze(1) * col_coords.unsqueeze(0) + self.col_phases.unsqueeze(1))
         depth_terms = torch.sin(self.depth_freqs.unsqueeze(1) * depth_coords.unsqueeze(0) + self.depth_phases.unsqueeze(1))
-        return torch.einsum('e,es,er,ec,ed->srcd', self.amplitudes, sel_terms, row_terms, col_terms, depth_terms)
+        return sel_terms, row_terms, col_terms, depth_terms, self.amplitudes

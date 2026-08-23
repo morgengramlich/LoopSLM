@@ -1,22 +1,22 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
+from .embedding import FactorizedEmbedding
 from .generators import LatentAttentionDeltaGenerator, LinearDeltaGenerator
 from .decoder import LatentDecoderBlock
 
 
 class LoopLlm(nn.Module):
-    def __init__(self, embeddings, n_heads, d_c, d_ff, num_layers, max_seq_len,
+    def __init__(self, vocab_size, d_emb, d_model, n_heads, d_c, d_ff, num_layers, max_seq_len,
                  expansion_order, dropout=0.1):
         super().__init__()
-        vocab_size, d_model = embeddings.shape
         self.d_model = d_model
         self.d_c = d_c
         self.d_ff = d_ff
         self.num_layers = num_layers
         self.max_seq_len = max_seq_len
 
-        self.token_emb = nn.Embedding.from_pretrained(embeddings, freeze=True)
+        self.token_emb = FactorizedEmbedding(vocab_size, d_emb, d_model)
         self.dropout = nn.Dropout(dropout)
 
         self.W_dq = nn.Parameter(torch.empty(d_c, d_model))
@@ -58,33 +58,31 @@ class LoopLlm(nn.Module):
 
         x = self.dropout(self.token_emb(idx))
 
-        W_dq, W_dkv, W_uq, W_uk, W_uv, W_o, W_up, W_down = self._base_weights()
+        base_attn = (self.W_dq, self.W_dkv, self.W_uq, self.W_uk, self.W_uv, self.W_o)
+        base_ffn = (self.W_up, self.W_down)
+
+        factors_attn = self.attn_gen.generate_harmonics()
+        factors_up = self.ffn_up_gen.generate_harmonics()
+        factors_down = self.ffn_down_gen.generate_harmonics()
+
         for n in range(self.num_layers):
-            if n > 0:
-                d_attn = self.attn_gen.get_layer_diff(n)
-                W_dq = W_dq + d_attn[0]
-                W_dkv = W_dkv + d_attn[1]
-                W_uq = W_uq + d_attn[2]
-                W_uk = W_uk + d_attn[3]
-                W_uv = W_uv + d_attn[4]
-                W_o = W_o + d_attn[5]
-
-                dW_up = self.ffn_up_gen.get_layer_diff(n)
-                W_up = W_up + dW_up
-
-                dW_down = self.ffn_down_gen.get_layer_diff(n)
-                W_down = W_down + dW_down
-
             x = self.decoder(
-                x, W_dq, W_dkv, W_uq, W_uk, W_uv, W_o, W_up, W_down,
-                attn_mask=attn_mask
+                x,
+                base_attn,
+                base_ffn,
+                factors_attn,
+                factors_up,
+                factors_down,
+                layer_idx=n,
+                attn_mask=attn_mask,
             )
 
         x = self.norm_f(x)
-        return x @ self.token_emb.weight.T
+        return self.token_emb.compute_logits(x)
 
     def get_param_groups(self, base_lr, coeff_lr, freq_lr, phase_lr, scale_lr):
         base_params = [self.W_dq, self.W_dkv, self.W_uq, self.W_uk, self.W_uv, self.W_o, self.W_up, self.W_down]
+        base_params += list(self.token_emb.parameters())
         base_params += list(self.decoder.parameters())
         base_params += list(self.norm_f.parameters())
 
