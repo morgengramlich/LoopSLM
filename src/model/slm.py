@@ -2,10 +2,10 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from .generators import AttentionDeltaGenerator, LinearDeltaGenerator
-from .decoder import DecoderBlock
+from .basic.decoder import DecoderBlock
 
 
-class LoopLlm(nn.Module):
+class LoopSlm(nn.Module):
     def __init__(self, embeddings, n_heads, d_ff, num_layers, max_seq_len,
                  expansion_order, dropout=0.1):
         super().__init__()
@@ -34,7 +34,6 @@ class LoopLlm(nn.Module):
         self.norm_f = nn.RMSNorm(d_model)
 
     def _init_weights(self):
-        """Initialize base transformer weights."""
         nn.init.xavier_uniform_(self.W_q)
         nn.init.xavier_uniform_(self.W_k)
         nn.init.xavier_uniform_(self.W_v)
@@ -67,13 +66,13 @@ class LoopLlm(nn.Module):
                 factors_up,
                 factors_down,
                 layer_idx=n,
-                attn_mask=attn_mask,
+                attn_mask=attn_mask
             )
 
         x = self.norm_f(x)
         return x @ self.token_emb.weight.T
 
-    def get_param_groups(self, base_lr, coeff_lr, freq_lr, phase_lr, scale_lr):
+    def get_param_groups(self, base_lr, coeff_lr, freq_lr, phase_lr):
         base_params = [self.W_q, self.W_k, self.W_v, self.W_o, self.W_up, self.W_down]
         base_params += list(self.decoder.parameters())
         base_params += list(self.norm_f.parameters())
@@ -81,7 +80,6 @@ class LoopLlm(nn.Module):
         coeff_params = []
         freq_params = []
         phase_params = []
-        scale_params = []
 
         def split_surface(module):
             for name, p in module.named_parameters():
@@ -93,8 +91,6 @@ class LoopLlm(nn.Module):
                     freq_params.append(p)
                 elif "phases" in name:
                     phase_params.append(p)
-                elif "depth_scale" in name:
-                    scale_params.append(p)
                 else:
                     raise ValueError(f"Unknown surface parameter '{name}' in {module.__class__.__name__}")
 
@@ -106,8 +102,7 @@ class LoopLlm(nn.Module):
         coeff_ids = {id(p) for p in coeff_params}
         freq_ids = {id(p) for p in freq_params}
         phase_ids = {id(p) for p in phase_params}
-        scale_ids = {id(p) for p in scale_params}
-        all_ids = (base_ids | coeff_ids | freq_ids | phase_ids | scale_ids)
+        all_ids = (base_ids | coeff_ids | freq_ids | phase_ids )
 
         for name, p in self.named_parameters():
             if p.requires_grad and id(p) not in all_ids:
@@ -118,12 +113,10 @@ class LoopLlm(nn.Module):
             { "params": coeff_params, "lr": coeff_lr, "weight_decay": 0.01, "name": "coeff" },
             { "params": freq_params, "lr": freq_lr, "weight_decay": 0.0, "name": "freq" },
             { "params": phase_params, "lr": phase_lr, "weight_decay": 0.0, "name": "phase" },
-            { "params": scale_params, "lr": scale_lr, "weight_decay": 0.0, "name": "scale" },
         ]
 
     @torch.no_grad()
     def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
-        """Autoregressive generation loop for testing out the model."""
         self.eval()
         for _ in range(max_new_tokens):
             idx_cond = idx[:, -self.max_seq_len:]

@@ -1,22 +1,22 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-from .embedding import FactorizedEmbedding
 from .generators import LatentAttentionDeltaGenerator, LinearDeltaGenerator
-from .decoder import LatentDecoderBlock
+from .basic.decoder import LatentDecoderBlock
 
 
-class LoopLlm(nn.Module):
-    def __init__(self, vocab_size, d_emb, d_model, n_heads, d_c, d_ff, num_layers, max_seq_len,
+class LoopSlm(nn.Module):
+    def __init__(self, embeddings, n_heads, d_c, d_ff, num_layers, max_seq_len,
                  expansion_order, dropout=0.1):
         super().__init__()
+        vocab_size, d_model = embeddings.shape
         self.d_model = d_model
         self.d_c = d_c
         self.d_ff = d_ff
         self.num_layers = num_layers
         self.max_seq_len = max_seq_len
 
-        self.token_emb = FactorizedEmbedding(vocab_size, d_emb, d_model)
+        self.token_emb = nn.Embedding.from_pretrained(embeddings, freeze=True)
         self.dropout = nn.Dropout(dropout)
 
         self.W_dq = nn.Parameter(torch.empty(d_c, d_model))
@@ -38,7 +38,6 @@ class LoopLlm(nn.Module):
         self.norm_f = nn.RMSNorm(d_model)
 
     def _init_weights(self):
-        """Initialize base transformer weights."""
         nn.init.xavier_uniform_(self.W_dq)
         nn.init.xavier_uniform_(self.W_dkv)
         nn.init.xavier_uniform_(self.W_uq)
@@ -82,14 +81,12 @@ class LoopLlm(nn.Module):
 
     def get_param_groups(self, base_lr, coeff_lr, freq_lr, phase_lr, scale_lr):
         base_params = [self.W_dq, self.W_dkv, self.W_uq, self.W_uk, self.W_uv, self.W_o, self.W_up, self.W_down]
-        base_params += list(self.token_emb.parameters())
         base_params += list(self.decoder.parameters())
         base_params += list(self.norm_f.parameters())
 
         coeff_params = []
         freq_params = []
         phase_params = []
-        scale_params = []
 
         def split_surface(module):
             for name, p in module.named_parameters():
@@ -101,8 +98,6 @@ class LoopLlm(nn.Module):
                     freq_params.append(p)
                 elif "phases" in name:
                     phase_params.append(p)
-                elif "depth_scale" in name:
-                    scale_params.append(p)
                 else:
                     raise ValueError(f"Unknown surface parameter '{name}' in {module.__class__.__name__}")
 
@@ -114,8 +109,7 @@ class LoopLlm(nn.Module):
         coeff_ids = {id(p) for p in coeff_params}
         freq_ids = {id(p) for p in freq_params}
         phase_ids = {id(p) for p in phase_params}
-        scale_ids = {id(p) for p in scale_params}
-        all_ids = (base_ids | coeff_ids | freq_ids | phase_ids | scale_ids)
+        all_ids = (base_ids | coeff_ids | freq_ids | phase_ids )
 
         for name, p in self.named_parameters():
             if p.requires_grad and id(p) not in all_ids:
@@ -126,12 +120,10 @@ class LoopLlm(nn.Module):
             { "params": coeff_params, "lr": coeff_lr, "weight_decay": 0.01, "name": "coeff" },
             { "params": freq_params, "lr": freq_lr, "weight_decay": 0.0, "name": "freq" },
             { "params": phase_params, "lr": phase_lr, "weight_decay": 0.0, "name": "phase" },
-            { "params": scale_params, "lr": scale_lr, "weight_decay": 0.0, "name": "scale" },
         ]
 
     @torch.no_grad()
     def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
-        """Autoregressive generation loop for testing out the model."""
         self.eval()
         for _ in range(max_new_tokens):
             idx_cond = idx[:, -self.max_seq_len:]

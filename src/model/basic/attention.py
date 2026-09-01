@@ -1,6 +1,6 @@
 from torch import nn
 import torch.nn.functional as F
-from .utils import build_layer_weight
+from ..utils import build_layer_weight
 
 
 class MultiHeadAttention(nn.Module):
@@ -20,9 +20,9 @@ class MultiHeadAttention(nn.Module):
     def forward(self, x, base_attn, factors_attn, layer_idx, is_causal=False, attn_mask=None):
         B, S_q, E = x.shape
         W_q, W_k, W_v, W_o = base_attn
-        S, R, C, cum_depth = factors_attn
+        S, R, C, layer_depth = factors_attn
 
-        K_layer = cum_depth[:, layer_idx]
+        K_layer = layer_depth[:, layer_idx]
 
         W_q_n = build_layer_weight(W_q, K_layer * S[:, 0], R, C, layer_idx)
         W_k_n = build_layer_weight(W_k, K_layer * S[:, 1], R, C, layer_idx)
@@ -66,13 +66,13 @@ class LatentMultiHeadAttention(nn.Module):
 
         W_dq, W_dkv, W_uq, W_uk, W_uv, W_o = base_attn
         factors_down, factors_up, factors_out = factors_attn
-        R_dn, C_dn, S_dn, cum_dn = factors_down
-        R_up, C_up, S_up, cum_up = factors_up
-        R_out, C_out, cum_out = factors_out
+        R_dn, C_dn, S_dn, depth_dn = factors_down
+        R_up, C_up, S_up, depth_up = factors_up
+        R_out, C_out, depth_out = factors_out
 
-        K_dn = cum_dn[:, layer_idx]
-        K_up = cum_up[:, layer_idx]
-        K_out = cum_out[:, layer_idx]
+        K_dn = depth_dn[:, layer_idx]
+        K_up = depth_up[:, layer_idx]
+        K_out = depth_out[:, layer_idx]
 
         W_dq_n = build_layer_weight(W_dq, K_dn * S_dn[:, 0], R_dn, C_dn, layer_idx)
         W_dkv_n = build_layer_weight(W_dkv, K_dn * S_dn[:, 1], R_dn, C_dn, layer_idx)

@@ -4,15 +4,15 @@ from torch import nn
 
 
 class DeltaSurface3D(nn.Module):
-    def __init__(self, expansion_order, max_rc_cycles=5, max_depth_cycles=1, fan_in=None):
+    def __init__(self, expansion_order, max_rc_cycles=5, max_depth_cycles=1):
         super().__init__()
+        self.amplitudes = nn.Parameter(torch.zeros(expansion_order))
         self.row_freqs = nn.Parameter(torch.empty(expansion_order))
         self.col_freqs = nn.Parameter(torch.empty(expansion_order))
         self.depth_freqs = nn.Parameter(torch.empty(expansion_order))
         self.row_phases = nn.Parameter(torch.empty(expansion_order))
         self.col_phases = nn.Parameter(torch.empty(expansion_order))
         self.depth_phases = nn.Parameter(torch.empty(expansion_order))
-        self.amplitudes = nn.Parameter(torch.empty(expansion_order))
 
         rc_max = max_rc_cycles * 2 * math.pi
         depth_max = max_depth_cycles * 2 * math.pi
@@ -23,10 +23,6 @@ class DeltaSurface3D(nn.Module):
         nn.init.uniform_(self.col_phases, -math.pi, math.pi)
         nn.init.uniform_(self.depth_phases, -math.pi, math.pi)
 
-        E = expansion_order
-        amp_std = (1.0 / math.sqrt(E)) if fan_in is None else (2.0 ** 1.5) / math.sqrt(E * fan_in)
-        nn.init.normal_(self.amplitudes, mean=0.0, std=amp_std)
-
     def forward(self, row_coords, col_coords, depth_coords):
         row_terms = torch.sin(self.row_freqs.unsqueeze(1) * row_coords.unsqueeze(0) + self.row_phases.unsqueeze(1))
         col_terms = torch.sin(self.col_freqs.unsqueeze(1) * col_coords.unsqueeze(0) + self.col_phases.unsqueeze(1))
@@ -35,9 +31,9 @@ class DeltaSurface3D(nn.Module):
 
 
 class DeltaSurface4D(nn.Module):
-    def __init__(self, expansion_order, max_sel_cycles=1, max_rc_cycles=5,
-                 max_depth_cycles=1, fan_in=None):
+    def __init__(self, expansion_order, max_sel_cycles=1, max_rc_cycles=5, max_depth_cycles=1):
         super().__init__()
+        self.amplitudes = nn.Parameter(torch.zeros(expansion_order))
         self.sel_freqs = nn.Parameter(torch.empty(expansion_order))
         self.row_freqs = nn.Parameter(torch.empty(expansion_order))
         self.col_freqs = nn.Parameter(torch.empty(expansion_order))
@@ -46,7 +42,6 @@ class DeltaSurface4D(nn.Module):
         self.row_phases = nn.Parameter(torch.empty(expansion_order))
         self.col_phases = nn.Parameter(torch.empty(expansion_order))
         self.depth_phases = nn.Parameter(torch.empty(expansion_order))
-        self.amplitudes = nn.Parameter(torch.empty(expansion_order))
 
         sel_max = max_sel_cycles * 2 * math.pi
         rc_max = max_rc_cycles * 2 * math.pi
@@ -59,10 +54,6 @@ class DeltaSurface4D(nn.Module):
         nn.init.uniform_(self.row_phases, -math.pi, math.pi)
         nn.init.uniform_(self.col_phases, -math.pi, math.pi)
         nn.init.uniform_(self.depth_phases, -math.pi, math.pi)
-
-        E = expansion_order
-        amp_std = (1.0 / math.sqrt(E)) if fan_in is None else (2.0 ** 2.0) / math.sqrt(E * fan_in)
-        nn.init.normal_(self.amplitudes, mean=0.0, std=amp_std)
 
     def forward(self, sel_coords, row_coords, col_coords, depth_coords):
         sel_terms = torch.sin(self.sel_freqs.unsqueeze(1) * sel_coords.unsqueeze(0) + self.sel_phases.unsqueeze(1))

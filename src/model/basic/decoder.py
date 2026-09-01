@@ -1,7 +1,7 @@
 from torch import nn
 import torch.nn.functional as F
 from .attention import MultiHeadAttention, LatentMultiHeadAttention
-from .utils import build_layer_weight
+from ..utils import build_layer_weight
 
 
 class DynamicSwiGLU(nn.Module):
@@ -9,11 +9,11 @@ class DynamicSwiGLU(nn.Module):
         super().__init__()
 
     def forward(self, x, W_up_base, W_down_base, factors_up, factors_down, layer_idx):
-        R_up, C_up, cum_up = factors_up
-        R_dn, C_dn, cum_dn = factors_down
+        R_up, C_up, depth_up = factors_up
+        R_dn, C_dn, depth_dn = factors_down
 
-        W_up_n = build_layer_weight(W_up_base, cum_up[:, layer_idx], R_up, C_up, layer_idx)
-        W_dn_n = build_layer_weight(W_down_base, cum_dn[:, layer_idx], R_dn, C_dn, layer_idx)
+        W_up_n = build_layer_weight(W_up_base, depth_up[:, layer_idx], R_up, C_up, layer_idx)
+        W_dn_n = build_layer_weight(W_down_base, depth_dn[:, layer_idx], R_dn, C_dn, layer_idx)
 
         x = F.linear(x, W_up_n)
         gate, up = x.chunk(2, dim=-1)
@@ -22,7 +22,6 @@ class DynamicSwiGLU(nn.Module):
 
 
 class DecoderBlock(nn.Module):
-    """Dynamic Decoder block"""
     def __init__(self, d_model, n_heads, dropout=0.1):
         super().__init__()
         self.dropout = nn.Dropout(dropout)
@@ -44,8 +43,8 @@ class DecoderBlock(nn.Module):
         )
         return x
 
+
 class LatentDecoderBlock(nn.Module):
-    """Dynamic Decoder block"""
     def __init__(self, d_model, d_c, n_heads, dropout=0.1):
         super().__init__()
         self.dropout = nn.Dropout(dropout)
