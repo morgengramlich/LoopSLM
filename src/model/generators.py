@@ -6,11 +6,11 @@ from .utils import nyquist_check_depth
 
 class LinearDeltaGenerator(nn.Module):
     def __init__(self, in_features, out_features, num_layers, expansion_order,
-                 max_rc_cycles=5, max_depth_cycles=1):
+                 max_rc_cycles=5, max_depth_cycles=1, delta_fn=DeltaSurface3D):
         super().__init__()
         nyquist_check_depth(max_depth_cycles, num_layers, label='[ffn proj]')
 
-        self.weight_diff_gen = DeltaSurface3D(
+        self.diff_gen = delta_fn(
             expansion_order, max_rc_cycles=max_rc_cycles, max_depth_cycles=max_depth_cycles,
         )
 
@@ -19,19 +19,20 @@ class LinearDeltaGenerator(nn.Module):
         self.register_buffer('depth_coords', torch.linspace(-1.0, 1.0, num_layers))
 
     def generate_harmonics(self):
-        R, C, D, amp = self.weight_diff_gen(self.row_coords, self.col_coords, self.depth_coords)
+        R, C, D, amp = self.diff_gen(self.row_coords, self.col_coords, self.depth_coords)
         raw_depth = D * amp.unsqueeze(1)
         return R, C, raw_depth
 
 
 class AttentionDeltaGenerator(nn.Module):
     def __init__(self, d_model, num_layers, expansion_order,
-                 max_mat_cycles=1, max_rc_cycles=5, max_depth_cycles=1):
+                 max_mat_cycles=1, max_rc_cycles=5, max_depth_cycles=1,
+                 delta_fn=DeltaSurface4D):
         super().__init__()
         self.d_model = d_model
         nyquist_check_depth(max_depth_cycles, num_layers, label='[attention]')
 
-        self.diff_gen = DeltaSurface4D(
+        self.diff_gen = delta_fn(
             expansion_order, max_sel_cycles=max_mat_cycles,
             max_rc_cycles=max_rc_cycles, max_depth_cycles=max_depth_cycles
         )
@@ -49,22 +50,23 @@ class AttentionDeltaGenerator(nn.Module):
 
 class LatentAttentionDeltaGenerator(nn.Module):
     def __init__(self, d_model, d_c, num_layers, expansion_order,
-                 max_mat_cycles=1, max_rc_cycles=5, max_depth_cycles=1):
+                 max_mat_cycles=1, max_rc_cycles=5, max_depth_cycles=1,
+                 delta_3d_fn=DeltaSurface3D, delta_4d_fn=DeltaSurface4D):
         super().__init__()
         self.d_model = d_model
         self.d_c = d_c
 
         nyquist_check_depth(max_depth_cycles, num_layers, label='[latent_attention]')
 
-        self.down_gen = DeltaSurface4D(
+        self.down_gen = delta_4d_fn(
             expansion_order, max_sel_cycles=max_mat_cycles,
             max_rc_cycles=max_rc_cycles, max_depth_cycles=max_depth_cycles,
         )
-        self.up_gen = DeltaSurface4D(
+        self.up_gen = delta_4d_fn(
             expansion_order, max_sel_cycles=max_mat_cycles,
             max_rc_cycles=max_rc_cycles, max_depth_cycles=max_depth_cycles,
         )
-        self.out_gen = DeltaSurface3D(
+        self.out_gen = delta_3d_fn(
             expansion_order, max_rc_cycles=max_rc_cycles, max_depth_cycles=max_depth_cycles,
         )
 

@@ -25,8 +25,7 @@ class ContextTracker(nn.Module):
         k = torch.ones_like(iv_reshaped)
         gk = torch.log(f_gate_reshaped.clamp(min=1e-6))
 
-        S = chunk_gla(q, k, iv_reshaped, gk)
-        S = S / D
+        S, _ = chunk_gla(q, k, iv_reshaped, gk)
         return S.transpose(1, 2).reshape(B, T, E)
 
     def forward(self, x, state_prev=None):
