@@ -18,9 +18,9 @@ At a high level, the hypersurface is a continuous multi-dimensional function tha
 
 $$\text{Surface}_i(r, c, d) = \text{Tri}_i(r) \cdot \text{Tri}_i(c) \cdot \text{Tri}_i(d)$$
 
-3. **Sum of Harmonics:** Stacking $E$ of these components (`expansion_order`) scaled by learned amplitudes ($A_i$) builds the complete hypersurface:
+3. **Sum of Harmonics:** Stacking $E$ of these components (the expansion order) scaled by learned amplitudes ($A_i$) builds the complete hypersurface:
 
-$$\Delta W(r, c, d) = \sum_{i=1}^{\text{expansion\_order}} A_i \cdot \left(\text{Surface}_i(r, c, d) \right)$$
+$$\Delta W(r, c, d) = \sum_{i=1}^{E} A_i \cdot \left(\text{Surface}_i(r, c, d) \right)$$
 
 By sampling this continuous space at fixed discrete coordinates $(r_l, c_l, d_l)$ for layer $l$, the model extracts a weight diff $\Delta W_l$ that modifies the shared base layer.
 
@@ -28,6 +28,6 @@ By sampling this continuous space at fixed discrete coordinates $(r_l, c_l, d_l)
 
 To allow the shared base layer to adapt to complex sequences, input token embeddings pass through a sequence-aware recurrent tracker accelerated by Triton GLA (Gated Linear Attention). The resulting state is projected and normalized into a dynamic multiplier:
 
-$$\text{multiplier} = 1.0 + \text{context\_state}$$
+$$\text{multiplier} = 1.0 + \text{state}$$
 
 This multiplier is then used to modulate the hypersurface amplitudes.
