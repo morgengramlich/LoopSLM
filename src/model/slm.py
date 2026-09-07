@@ -17,6 +17,7 @@ class LoopSlm(nn.Module):
         self.d_ff = d_ff
         self.num_layers = num_layers
         self.max_seq_len = max_seq_len
+        self.expansion_order = expansion_order
 
         self.token_emb = nn.Embedding.from_pretrained(embeddings, freeze=True)
         self.dropout = nn.Dropout(dropout)
@@ -33,7 +34,6 @@ class LoopSlm(nn.Module):
         self.W_o = nn.Parameter(torch.empty(d_model, d_model))
         self.W_up = nn.Parameter(torch.empty(2 * d_ff, d_model))
         self.W_down = nn.Parameter(torch.empty(d_model, d_ff))
-        self._init_weights()
 
         self.attn_gen = AttentionDeltaGenerator(d_model, num_layers, expansion_order, delta_fn=TriangleSurface4D)
         self.ffn_up_gen = LinearDeltaGenerator(d_model, 2 * d_ff, num_layers, expansion_order, delta_fn=TriangleSurface3D)
@@ -41,6 +41,8 @@ class LoopSlm(nn.Module):
 
         self.decoder = DecoderBlock(d_model=d_model, n_heads=n_heads, dropout=dropout)
         self.norm_f = nn.RMSNorm(d_model)
+
+        self._init_weights()
 
     def _init_amplitudes(self, module, alpha, n_in, n_out, expansion_order):
         sigma_a = math.sqrt((27.0 * alpha) / (expansion_order * (n_in + n_out)))
@@ -70,7 +72,7 @@ class LoopSlm(nn.Module):
         assert T <= self.max_seq_len
 
         x = self.dropout(self.token_emb(idx))
-        state, _ = self.ctx_tracker(x)
+        state = self.ctx_tracker(x)
         state = self.ctx_comp(state)
 
         base_attn = (self.W_q, self.W_k, self.W_v, self.W_o)
