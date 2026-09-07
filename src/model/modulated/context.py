@@ -28,15 +28,11 @@ class ContextTracker(nn.Module):
         S, _ = chunk_gla(q, k, iv_reshaped, gk)
         return S.transpose(1, 2).reshape(B, T, E)
 
-    def forward(self, x, state_prev=None):
+    def forward(self, x):
         v = self.proj_v(x)
         i_gate = torch.sigmoid(self.proj_i(x))
         f_gate = torch.sigmoid(self.proj_f(x))
         iv = i_gate * v
 
-        if state_prev is not None:
-            state_next = f_gate[:, 0, :] * state_prev + iv[:, 0, :]
-            return self.norm(state_next.unsqueeze(1)), state_next
-
         S = self._run_triton_gla(iv, f_gate)
-        return self.norm(S), None
+        return self.norm(S)
